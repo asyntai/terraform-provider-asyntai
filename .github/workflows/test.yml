@@ -1,0 +1,82 @@
+name: Tests
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: 'go.mod'
+          cache: true
+      - run: go mod download
+      - run: go build -v .
+      - run: go vet ./...
+      - name: Docs are up to date
+        run: |
+          go generate ./...
+          git diff --compact-summary --exit-code || (echo "Run 'go generate ./...' and commit the docs."; exit 1)
+      # Unit tests only. Acceptance tests (TF_ACC=1) need a running Asyntai
+      # API and run against a local test server, not against a real account.
+      - run: go test -v -cover ./...
+
+  # Installs the provider through `tofu init` the way a user gets it from the
+  # OpenTofu Registry (a release-shaped zip at registry.opentofu.org/asyntai/asyntai,
+  # served from a local mirror) and validates every example with it.
+  opentofu:
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        tofu: ['1.6.3', 'latest']
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: 'go.mod'
+          cache: true
+      - uses: opentofu/setup-opentofu@v1
+        with:
+          tofu_version: ${{ matrix.tofu }}
+          tofu_wrapper: false
+      - name: Build a release-shaped package
+        run: |
+          mkdir -p "$RUNNER_TEMP/mirror/registry.opentofu.org/asyntai/asyntai" "$RUNNER_TEMP/build"
+          go build -trimpath -ldflags "-s -w -X main.version=1.0.0" -o "$RUNNER_TEMP/build/terraform-provider-asyntai_v1.0.0" .
+          (cd "$RUNNER_TEMP/build" && zip -q "$RUNNER_TEMP/mirror/registry.opentofu.org/asyntai/asyntai/terraform-provider-asyntai_1.0.0_linux_amd64.zip" terraform-provider-asyntai_v1.0.0)
+          cat > "$RUNNER_TEMP/tofurc" <<EOF
+          provider_installation {
+            filesystem_mirror {
+              path    = "$RUNNER_TEMP/mirror"
+              include = ["registry.opentofu.org/asyntai/*"]
+            }
+            direct {
+              exclude = ["registry.opentofu.org/asyntai/*"]
+            }
+          }
+          EOF
+      - name: Init and validate the examples
+        env:
+          TF_CLI_CONFIG_FILE: ${{ runner.temp }}/tofurc
+        run: |
+          mkdir -p "$RUNNER_TEMP/cfg"
+          cp examples/provider/provider.tf "$RUNNER_TEMP/cfg/"
+          i=0
+          for f in examples/resources/*/resource.tf examples/data-sources/*/data-source.tf; do
+            i=$((i+1)); cp "$f" "$RUNNER_TEMP/cfg/example_$i.tf"
+          done
+          echo "We ship within two working days inside the EU." > "$RUNNER_TEMP/cfg/shipping-faq.md"
+          echo "You are the shop assistant of Example Shop." > "$RUNNER_TEMP/cfg/instructions.md"
+          cd "$RUNNER_TEMP/cfg"
+          tofu version
+          tofu init -input=false
+          grep -q 'provider "registry.opentofu.org/asyntai/asyntai"' .terraform.lock.hcl
+          tofu validate

@@ -1,0 +1,7 @@
+terraform-provider-asyntai
+terraform-provider-asyntai.exe
+dist/
+*.tfstate
+*.tfstate.*
+.terraform/
+.terraform.lock.hcl
