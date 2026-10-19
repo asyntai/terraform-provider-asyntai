@@ -18,6 +18,9 @@ var _ provider.Provider = &asyntaiProvider{}
 
 type asyntaiProvider struct {
 	version string
+	// product names the tool in the User-Agent header, for example
+	// "pulumi-asyntai" when the Pulumi bridge runs this provider.
+	product string
 }
 
 type providerModel struct {
@@ -26,8 +29,13 @@ type providerModel struct {
 }
 
 func New(version string) func() provider.Provider {
+	return NewWithProduct("terraform-provider-asyntai", version)
+}
+
+// NewWithProduct is New with another product name in the User-Agent header.
+func NewWithProduct(product, version string) func() provider.Provider {
 	return func() provider.Provider {
-		return &asyntaiProvider{version: version}
+		return &asyntaiProvider{version: version, product: product}
 	}
 }
 
@@ -89,6 +97,9 @@ func (p *asyntaiProvider) Configure(ctx context.Context, req provider.ConfigureR
 	}
 
 	client := NewClient(baseURL, apiKey, p.version)
+	if p.product != "" {
+		client.UserAgent = p.product + "/" + p.version
+	}
 	resp.DataSourceData = client
 	resp.ResourceData = client
 }

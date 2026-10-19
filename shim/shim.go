@@ -9,7 +9,9 @@ import (
 	asyntai "github.com/asyntai/terraform-provider-asyntai/internal/provider"
 )
 
-// NewProvider returns the Asyntai terraform-plugin-framework provider.
+// NewProvider returns the Asyntai terraform-plugin-framework provider. It
+// sends "pulumi-asyntai/<version>" as its User-Agent, so the Asyntai API can
+// tell Pulumi traffic from Terraform traffic.
 func NewProvider(version string) provider.Provider {
-	return asyntai.New(version)()
+	return asyntai.NewWithProduct("pulumi-asyntai", version)()
 }
